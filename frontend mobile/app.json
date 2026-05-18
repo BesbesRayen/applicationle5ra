@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "CreditTN",
+    "slug": "credittn",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "creditn",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "bundleIdentifier": "tn.credittn.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Utilisé pour scanner les QR codes"
+      }
+    },
+    "android": {
+      "package": "tn.credittn.app",
+      "permissions": ["CAMERA"],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "creditn"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

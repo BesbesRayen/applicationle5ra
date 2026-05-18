@@ -1,0 +1,575 @@
+================================================================================
+  CreadiTn BNPL Fintech System - Complete Architecture
+================================================================================
+
+PROJECT OVERVIEW
+----------------
+all-app-main/
+├── creadiTn/                   Spring Boot Backend (Java 17, port 8082)
+├── Dashboard_client-main/      Next.js Admin Portal (TypeScript, port 3000)
+└── frontend mobile/            React Native + Expo Mobile App (TypeScript, port 8081)
+
+
+================================================================================
+  1. BACKEND — creadiTn (Spring Boot 4.0.3)
+================================================================================
+
+1.1 FULL PACKAGE STRUCTURE
+---------------------------
+src/main/java/com/creaditn/creaditnbackend/
+├── CreadiTnApplication.java
+├── config/
+│   ├── WebMvcConfig.java              CORS & MVC configuration
+│   ├── SwaggerConfig.java             Swagger/OpenAPI docs
+│   └── JacksonConfig.java             JSON serialization config
+├── controller/
+│   ├── AuthController.java            register, login, google-login, password reset
+│   ├── AdminController.java           admin login, stats, KYC/credit approval
+│   ├── UserController.java            profile CRUD, photo upload, password change
+│   ├── CardController.java            add/list/block/set-default card
+│   ├── FinancialProfileController.java create/get/check financial profile
+│   ├── CreditController.java          simulate, request, balance, installments
+│   ├── PaymentController.java         pay installment, pay-all, history
+│   ├── PaymentAliasController.java    payment endpoint aliases
+│   ├── KycController.java             upload docs, verify via Didit, status
+│   ├── CreadiScoreController.java     calculate & get score
+│   ├── ScoreController.java           legacy score endpoints
+│   ├── DashboardController.java       aggregated dashboard data
+│   ├── NotificationController.java    list, unread-count, mark-read
+│   ├── MerchantController.java        list merchants by category
+│   ├── RewardsController.java         cashback balance & offers
+│   ├── SupportController.java         FAQ, tickets, feedback
+│   └── SustainabilityController.java  sustainability metrics
+├── entity/
+│   ├── User.java                 id, firstName, lastName, email, password, phone,
+│   │                             kycStatus, monthlySalary, paymentScoreModifier
+│   ├── Card.java                 id, user_id, card_number(encrypted), expiry_date,
+│   │                             type, is_default, status
+│   ├── FinancialProfile.java     id, user_id, monthly_salary, salary_day,
+│   │                             employment_status, risk_level
+│   ├── CreditRequest.java        id, user_id, totalAmount, downPayment,
+│   │                             numberOfInstallments, monthlyAmount, status
+│   ├── Installment.java          id, credit_request_id, dueDate, amount,
+│   │                             status, paidDate, penalty
+│   ├── Payment.java              id, user_id, installment_id, amount,
+│   │                             transactionReference, paidAt
+│   ├── KycDocument.java          id, user_id, cinFrontUrl, cinBackUrl,
+│   │                             selfieUrl, ocrResult, status
+│   ├── CreadiScore.java          id, user_id, totalScore, kycScore, salaryScore,
+│   │                             behaviorScore, level, risk, badge
+│   ├── Notification.java         id, user_id, title, message, type, is_read
+│   ├── Merchant.java             id, name, category, address, logoUrl, active
+│   ├── CreditScore.java          legacy score entity
+│   ├── BaseEntity.java           abstract base entity
+│   └── enums:
+│       KycStatus            NOT_SUBMITTED | PENDING | APPROVED | REJECTED
+│       CardType             VISA | MASTERCARD
+│       CardStatus           ACTIVE | BLOCKED
+│       EmploymentStatus     FULL_TIME | PART_TIME | SELF_EMPLOYED | STUDENT | UNEMPLOYED | OTHER
+│       CreditRequestStatus  PENDING | APPROVED | REJECTED
+│       InstallmentStatus    PENDING | PAID | OVERDUE
+│       RiskLevel            LOW | MODERATE | HIGH | CRITICAL
+│       ScoreLevel           score tier levels
+│       NotificationType     KYC_VALIDATED | CREDIT_APPROVED | CREDIT_REJECTED |
+│                            PAYMENT_REMINDER | PAYMENT_CONFIRMED | INSTALLMENT_OVERDUE
+├── repository/                   Spring Data JPA (one repo per entity)
+├── service/
+│   ├── AuthService.java          register, login, forgot/reset password
+│   ├── UserService.java          CRUD, photo upload
+│   ├── CardService.java          add/block, AES-256-GCM encryption, masking
+│   ├── FinancialProfileService   salary/employment profile management
+│   ├── CreditService.java        simulate terms (0/3/6/12%), request, balance
+│   ├── InstallmentService.java   generate schedule (salary_day+2), retrieve
+│   ├── PaymentService.java       process payment, update credit score
+│   ├── KycService.java           upload, Didit AI verify
+│   ├── CreadiScoreService.java   multi-factor score algorithm
+│   ├── NotificationService.java  create/list/mark-read
+│   ├── EmailService.java         resilient SMTP email dispatch
+│   ├── RewardsService.java       cashback & loyalty
+│   ├── SupportService.java       FAQ & tickets
+│   ├── OcrService.java           OCR for ID card processing
+│   ├── CreditScoreService.java   legacy scoring service
+│   └── MerchantService.java      merchant data
+├── dto/                          40+ DTOs (AuthRequest, AuthResponse, CardDto,
+│                                 CreditRequestDto, InstallmentDto, PaymentDto,
+│                                 KycDocumentDto, CreadiScoreResponse, etc.)
+├── util/
+│   ├── CardCryptoUtil.java       AES-256-GCM encrypt/decrypt (CVV never stored)
+│   ├── CreditCalculator.java     interest table 0/3/6/12%, 20% down payment
+│   └── UserUtil.java
+├── exception/                    custom exceptions (BadRequestException, etc.)
+├── security/                     Spring Security (all permitAll for dev)
+├── scheduler/                    overdue installment detection batch
+└── kyc/                          Didit API integration for AI ID verification
+
+src/main/resources/
+├── application.properties        DB, mail, server, Didit config
+└── schema.sql                    Clean 6-table schema with FK constraints
+
+
+1.2 ALL REST API ENDPOINTS
+---------------------------
+
+-- Authentication --
+POST   /api/auth/register                    Register new user
+POST   /api/auth/login                       Login (email + password)
+POST   /api/auth/google-login                Google OAuth login
+POST   /api/auth/forgot-password/request     Request reset code
+POST   /api/auth/forgot-password/confirm     Confirm code + new password
+
+-- Users --
+GET    /api/users/me                         Get own profile
+PUT    /api/users/me                         Update profile
+PUT    /api/users/password                   Change password
+POST   /api/users/photo                      Upload profile photo
+GET    /api/users/{id}                       Get user by ID
+
+-- Cards --
+POST   /api/cards/add                        Add card
+GET    /api/cards/user                       List user's cards
+GET    /api/cards/default                    Get default card
+PUT    /api/cards/set-default                Set default card
+DELETE /api/cards/block                      Block card
+
+-- Financial Profile --
+POST   /api/profile/create                   Create financial profile
+GET    /api/profile/get                      Get financial profile
+GET    /api/profile/has-profile              Check if profile exists
+
+-- Credits --
+POST   /api/credits/simulate                 Simulate credit terms
+POST   /api/credits/request                  Create credit request
+GET    /api/credits/my-requests              List my credits
+GET    /api/credits/{id}                     Get specific credit
+GET    /api/credits/balance                  Available credit balance
+GET    /api/credits/{id}/installments        Get installments for a credit
+GET    /api/credits/my-installments          All my installments
+GET    /api/credits/my-installments/pending  Pending installments only
+
+-- Payments --
+POST   /api/payments                         Pay an installment
+POST   /api/payments/payAll                  Pay all installments
+GET    /api/payments/my-payments             Payment history
+GET    /api/payments/methods                 Available payment methods
+PUT    /api/payments/autopay                 Set autopay
+
+-- KYC --
+POST   /api/kyc/upload                       Upload docs (URL-based)
+POST   /api/kyc/upload-multipart             Upload docs (multipart form)
+POST   /api/kyc/verify                       Upload + AI verify via Didit
+GET    /api/kyc/status                       Get KYC status
+
+-- Credit Scoring --
+POST   /api/creadi-score/calculate/{userId}  Calculate CreadiScore
+GET    /api/creadi-score/latest              Get latest score
+
+-- Dashboard --
+GET    /api/dashboard                        Aggregated user dashboard
+
+-- Notifications --
+GET    /api/notifications                    All notifications
+GET    /api/notifications/unread             Unread only
+GET    /api/notifications/unread-count       Unread count
+PUT    /api/notifications/{id}/read          Mark as read
+
+-- Merchants --
+GET    /api/merchants                        All active merchants
+GET    /api/merchants/category/{cat}         Filter by category
+GET    /api/merchants/{id}                   Get merchant by ID
+
+-- Rewards --
+GET    /api/rewards/cashback                 Cashback balance
+GET    /api/rewards/offers                   Active cashback offers
+GET    /api/rewards/history                  Cashback history
+
+-- Support --
+GET    /api/support/faq                      FAQ list
+GET    /api/support/tickets                  My tickets
+POST   /api/support/tickets                  Create ticket
+POST   /api/support/feedback                 Submit feedback
+
+-- Admin --
+POST   /api/admin/login                      Admin login
+GET    /api/admin/stats                      Dashboard stats
+GET    /api/admin/users                      All users
+GET    /api/admin/kyc/pending                Pending KYC queue
+PUT    /api/admin/kyc/{id}/approve           Approve KYC
+PUT    /api/admin/kyc/{id}/reject            Reject KYC
+GET    /api/admin/credits/pending            Pending credit requests
+PUT    /api/admin/credits/{id}/approve       Approve credit
+PUT    /api/admin/credits/{id}/reject        Reject credit
+GET    /api/admin/credits                    All credits
+GET    /api/admin/installments               All installments
+
+
+1.3 DATABASE TABLES (MySQL — creadiTn)
+----------------------------------------
+Table                 Key Fields
+-----                 ----------
+users                 id PK, first_name, last_name, email UK, password_hash,
+                      phone, kyc_status ENUM, monthly_salary, payment_score_modifier
+cards                 id PK, user_id FK, card_number(encrypted), expiry_date,
+                      type ENUM, is_default, status ENUM
+financial_profiles    id PK, user_id FK UK, monthly_salary, salary_day INT,
+                      employment_status ENUM, risk_level ENUM
+credit_requests       id PK, user_id FK, total_amount, down_payment,
+                      num_installments, monthly_amount, status ENUM
+installments          id PK, credit_request_id FK, due_date DATE, amount,
+                      status ENUM, paid_date, penalty
+payments              id PK, user_id FK, installment_id FK, amount,
+                      transaction_reference UK, paid_at
+
+Also managed by Hibernate (ddl-auto=update):
+  creadi_scores, kyc_documents, notifications, merchants,
+  verification_tokens, transactions, credits
+
+FK Relationships:
+  cards                → users
+  financial_profiles   → users
+  credit_requests      → users
+  installments         → credit_requests
+  payments             → users, installments
+  kyc_documents        → users
+  creadi_scores        → users
+  notifications        → users
+
+
+1.4 BACKEND DEPENDENCIES (pom.xml)
+------------------------------------
+spring-boot-starter-parent     4.0.3
+spring-boot-starter-data-jpa          ORM / Hibernate
+spring-boot-starter-security          Auth & security
+spring-boot-starter-web               REST controllers
+spring-boot-starter-mail              Email (SMTP)
+spring-boot-starter-validation        Input validation
+mysql-connector-j                     MySQL JDBC driver
+lombok                                Code generation
+springdoc-openapi-starter-webmvc-ui   Swagger UI (2.8.6)
+
+
+================================================================================
+  2. ADMIN PORTAL — Dashboard_client-main (Next.js)
+================================================================================
+
+2.1 DIRECTORY STRUCTURE
+------------------------
+src/
+├── app/
+│   ├── page.tsx                  Landing page (Hero, Features, HowItWorks, Partners)
+│   ├── layout.tsx                Root layout
+│   ├── globals.css               Global styles
+│   ├── login/page.tsx            User login
+│   ├── register/page.tsx         User registration
+│   ├── boutiques/
+│   │   ├── page.tsx              Partner stores listing + search
+│   │   └── [id]/page.tsx         Store detail page
+│   ├── support/page.tsx          FAQ & support info
+│   ├── api/
+│   │   ├── auth/                 NextAuth handlers
+│   │   ├── contact/              Contact form API
+│   │   ├── messages/             Admin messages API
+│   │   └── test-connection/      DB connection test
+│   └── admin/
+│       ├── layout.tsx            Admin sidebar layout
+│       ├── page.tsx              Admin dashboard (stats overview)
+│       ├── login/page.tsx        Admin login
+│       ├── credits/page.tsx      Credit requests (view/approve/reject)
+│       ├── installments/page.tsx Installment tracking
+│       ├── kyc/page.tsx          KYC verification queue
+│       ├── users/page.tsx        User account management
+│       └── messages/page.tsx     Admin messaging
+├── components/
+│   ├── Navbar.tsx                Top navigation bar
+│   ├── Footer.tsx                Footer section
+│   ├── Hero.tsx                  Landing hero section
+│   ├── Features.tsx              Feature cards showcase
+│   ├── HowItWorks.tsx            Step-by-step process
+│   ├── PartnersPreview.tsx       Featured partners
+│   ├── DownloadCTA.tsx           App download CTA
+│   ├── FAQAccordion.tsx          FAQ accordion
+│   ├── StoreCard.tsx             Merchant card component
+│   ├── ContactForm.tsx           Contact form
+│   └── Providers.tsx             Context/provider wrapper
+├── data/
+│   ├── boutiques.ts              Hardcoded merchant data
+│   └── faq.ts                    FAQ data
+└── lib/
+    ├── db.js                     Database connection
+    └── utils.ts                  Utility functions
+
+
+2.2 ADMIN PORTAL ROUTES
+------------------------
+Route                   Purpose
+-----                   -------
+/                       Landing page
+/login                  User login
+/register               User registration
+/boutiques              Partner stores listing
+/boutiques/[id]         Store detail
+/support                FAQ & support
+/admin                  Admin dashboard (stats)
+/admin/login            Admin-specific login
+/admin/credits          Credit requests queue
+/admin/installments     Installment tracker
+/admin/kyc              KYC verification queue
+/admin/users            User management
+/admin/messages         Admin messaging
+
+
+2.3 ADMIN PORTAL DEPENDENCIES (package.json)
+---------------------------------------------
+next              ^16.1.6     React framework
+react             ^18.3.0     UI library
+tailwindcss       ^3.4.0      Utility CSS
+framer-motion     ^11.0.0     Animations
+lucide-react      ^0.400.0    Icons
+next-auth         ^4.24.13    Authentication
+jsonwebtoken      ^9.0.2      JWT handling
+qrcode            ^1.5.4      QR code generation
+mysql2            ^3.18.1     MySQL client
+
+
+================================================================================
+  3. MOBILE APP — frontend mobile (React Native + Expo)
+================================================================================
+
+3.1 DIRECTORY STRUCTURE
+------------------------
+src/
+├── App.tsx                    Route manager — AppRoute string → screen component map
+├── main.tsx                   React DOM render entry
+├── components/
+│   ├── MobileLayout.tsx       Safe area wrapper
+│   ├── BottomNav.tsx          Tabs: Home / Shops / Credit / Cartes / Profile
+│   └── shops/
+│       ├── ShopListItem.tsx   Shop list item
+│       ├── ProductGridCard.tsx  Product grid card
+│       └── ArticleCard.tsx    Article/news card
+├── pages/
+│   ├── Login.tsx              Email/password login form
+│   ├── Register.tsx           Registration (firstName, lastName, email, phone, address)
+│   ├── ForgotPassword.tsx     Password reset flow (request code → confirm)
+│   ├── Home.tsx               Dashboard (promos, quick actions, deals)
+│   ├── Shops.tsx              Merchant listing + search
+│   ├── ShopProducts.tsx       Product catalog for selected shop
+│   ├── ProductDetail.tsx      Product detail + "Buy on Credit" CTA
+│   ├── Credit.tsx             Credit simulator + request form
+│   │                          (amount 100-5000 DT, months 3/6/9/12, 20% down, fees)
+│   ├── Installments.tsx       Payment schedule (list, pay individual, pay all)
+│   ├── CreadiScoreDashboard.tsx  Animated score ring, level badge, tips
+│   ├── Profile.tsx            User profile + Account Setup Progress section
+│   ├── PersonalInformation.tsx  Edit profile fields
+│   ├── EditProfileField.tsx   Single field edit modal
+│   ├── Support.tsx            FAQ + contact
+│   ├── KycVerification.tsx    6-step KYC flow (ID front, ID back, selfie, form)
+│   ├── Cards.tsx              Card list + add modal (AES encrypted, no CVV stored)
+│   ├── FinancialProfile.tsx   Salary + salary day + employment status form
+│   └── NotFound.tsx           404 screen
+├── lib/
+│   ├── api.ts                 All API fetch functions + TypeScript interfaces
+│   │                          (login, register, getCards, addCard, getCredits,
+│   │                           getDashboard, getFinancialProfile, saveFinancialProfile, etc.)
+│   ├── app-navigation.tsx     AppRoute type union + navigate context
+│   ├── auth.tsx               AuthContext (user, setUser, logout)
+│   ├── theme.ts               Color palette + spacing constants
+│   └── utils.ts               Utility helpers
+└── data/
+    └── shopCatalog.json       Local shop & product catalog data
+
+
+3.2 ALL SCREENS & ROUTES
+--------------------------
+Route                 File                        Auth Required
+-----                 ----                        -------------
+Login                 Login.tsx                   No
+Register              Register.tsx                No
+ForgotPassword        ForgotPassword.tsx          No
+Home                  Home.tsx                    Yes
+Shops                 Shops.tsx                   Yes
+ShopProducts          ShopProducts.tsx            Yes
+ProductDetail         ProductDetail.tsx           Yes
+Credit                Credit.tsx                  Yes
+Installments          Installments.tsx            Yes
+CreadiScore           CreadiScoreDashboard.tsx    Yes
+Profile               Profile.tsx                 Yes
+PersonalInformation   PersonalInformation.tsx     Yes
+EditProfileField      EditProfileField.tsx        Yes
+Support               Support.tsx                 Yes
+Kyc                   KycVerification.tsx         Yes
+Cards                 Cards.tsx                   Yes
+FinancialProfile      FinancialProfile.tsx        Yes
+NotFound              NotFound.tsx                N/A
+
+
+3.3 MOBILE APP DEPENDENCIES (package.json)
+-------------------------------------------
+react-native              0.81.5       React Native framework
+expo                      ^54.0.0      Mobile build & dev platform
+react                     19.1.0       UI library
+@tanstack/react-query     ^5.83.0      Server state management
+axios                     ^1.15.0      HTTP client
+react-hook-form           ^7.61.1      Form state management
+zod                       ^3.25.76     Schema validation
+tailwindcss               ^3.4.17      Utility CSS
+framer-motion             ^12.36.0     Animations
+lucide-react              ^0.462.0     Icons
+@expo/vector-icons        included     MaterialCommunityIcons etc.
+react-native-safe-area-context ~5.6.0  Safe area handling
+react-native-svg          ^15.12.1     SVG support
+expo-image-picker         included     Camera / gallery picker
+recharts                  ^2.15.4      Charts
+date-fns                  ^3.6.0       Date utilities
+sonner                    ^1.7.4       Toast notifications
+
+
+================================================================================
+  4. BUSINESS LOGIC RULES
+================================================================================
+
+BNPL Interest rates:
+  3 months  = 0%
+  6 months  = 3%
+  9 months  = 6%
+  12 months = 12%
+
+Down payment:         Mandatory 20% of total amount
+Credit range:         100 DT – 5000 DT
+Due date formula:     salary_day + 2 days (per installment)
+Payment simulation:   90% success rate
+
+Credit score:
+  Default score:      600
+  On-time payment:    +10 points
+  Late payment:       -15 points
+  Score range:        300 – 850
+
+Default credit limit: 5000 DT
+
+Card security:
+  Algorithm:          AES-256-GCM
+  IV:                 Prepended to ciphertext, Base64 encoded
+  CVV:                NEVER persisted
+  Stored:             card_token (UUID), last4 (CHAR4), expiry_encrypted (AES)
+
+Admin credentials:    admin@bnpl.com / admin123 (hardcoded dev)
+Backend port:         8082
+Expo port:            8081 (exp://192.168.1.167:8081)
+Admin portal port:    3000
+
+
+================================================================================
+  5. USER JOURNEY (API CALL FLOW)
+================================================================================
+
+1. REGISTER
+   POST /api/auth/register → { userId, email, firstName, lastName }
+   POST /api/users/photo   → upload profile photo (optional)
+
+2. LOGIN
+   POST /api/auth/login → { userId, email, firstName, lastName }
+   → store in AuthContext
+
+3. KYC VERIFICATION (required before credit)
+   POST /api/kyc/verify (cinFront, cinBack, selfie) → AI verify via Didit
+   Status: NOT_SUBMITTED → PENDING → APPROVED / REJECTED
+
+4. ADD PAYMENT CARD (required before credit)
+   POST /api/cards/add → { cardNumber, expiryDate, type, isDefault }
+   → card_number encrypted AES-256-GCM, CVV discarded immediately
+   GET  /api/cards/user → list masked cards
+
+5. FINANCIAL PROFILE (required before credit)
+   POST /api/profile/create → { monthlySalary, salaryDay, employmentStatus }
+   → risk level calculated automatically
+
+6. CREDIT SIMULATION
+   POST /api/credits/simulate → { amount, numberOfInstallments }
+   ← { totalAmount, downPayment, monthlyAmount, totalInterest }
+
+7. CREDIT REQUEST
+   POST /api/credits/request
+   → validates KYC approved + card exists + financial profile complete
+   → generates installment schedule (due = salary_day + 2 days each month)
+   → status: PENDING → (admin review) → APPROVED / REJECTED
+
+8. PAYMENT
+   POST /api/payments            (single installment)
+   POST /api/payments/payAll     (all pending at once)
+   → updates installment.status = PAID
+   → updates CreadiScore (+10 on-time, -15 late)
+   → sends PAYMENT_CONFIRMED notification
+
+9. DASHBOARD
+   GET /api/dashboard → { kycStatus, cardStatus, profileStatus, nextStep,
+                          creditBalance, creditScore, activeLoans }
+   nextStep values: COMPLETE_KYC | ADD_CARD | COMPLETE_FINANCIAL_PROFILE | READY_FOR_CREDIT
+
+
+================================================================================
+  6. ADMIN WORKFLOW
+================================================================================
+
+1. POST /api/admin/login (admin@bnpl.com / admin123)
+2. GET  /api/admin/stats
+       → { totalUsers, totalCredits, pendingKyc, approvedKyc,
+           pendingCredits, approvedCredits, rejectedCredits }
+3. GET  /api/admin/kyc/pending → review queue
+   PUT  /api/admin/kyc/{id}/approve
+   PUT  /api/admin/kyc/{id}/reject
+4. GET  /api/admin/credits/pending → review queue
+   PUT  /api/admin/credits/{id}/approve
+   PUT  /api/admin/credits/{id}/reject
+5. GET  /api/admin/users          → all accounts
+6. GET  /api/admin/installments   → all payment schedules
+
+
+================================================================================
+  7. HOW TO RUN
+================================================================================
+
+# 1. Start MySQL (XAMPP or native)
+#    Database: creadiTn  |  User: root  |  Password: (empty)
+
+# 2. Backend (Spring Boot)
+cd creadiTn
+.\mvnw.cmd spring-boot:run
+→ http://localhost:8082
+→ http://localhost:8082/swagger-ui.html  (API docs)
+
+# 3. Mobile App (Expo)
+cd "frontend mobile"
+npx expo start --offline
+→ Scan QR with Expo Go: exp://192.168.1.167:8081
+→ Web: http://localhost:8081
+
+# 4. Admin Portal (Next.js)
+cd Dashboard_client-main
+npm install
+npm run dev
+→ http://localhost:3000
+→ Admin login: admin@bnpl.com / admin123
+
+
+================================================================================
+  8. CONFIGURATION FILES
+================================================================================
+
+creadiTn/src/main/resources/application.properties:
+  spring.application.name=creadiTn
+  spring.datasource.url=jdbc:mysql://localhost:3306/creadiTn
+  spring.datasource.username=root
+  spring.datasource.password=
+  spring.jpa.hibernate.ddl-auto=update
+  server.port=8082
+  app.upload-dir=uploads
+  didit.api.url=https://apx.didit.me/v2
+
+creadiTn/src/main/resources/schema.sql:
+  Tables: users, verification_tokens, cards, credits, installments, transactions
+  All with: id PK, created_at, updated_at, deleted_at (soft delete)
+  FK constraints added via ALTER TABLE after all CREATE TABLE statements
+
+================================================================================
+  END OF ARCHITECTURE DOCUMENT
+================================================================================

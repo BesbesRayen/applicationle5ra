@@ -1,0 +1,105 @@
+services:
+  # ── MySQL Database ──────────────────────────────────────────────────────────
+  db:
+    image: mysql:8.0
+    container_name: creaditn-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: creaditn
+      MYSQL_USER: ${DB_USER:-creaditn}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-creaditnpass}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./creaditn (1).sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Spring Boot Backend ─────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./creadiTn
+      dockerfile: Dockerfile
+    container_name: creaditn-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/creaditn?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-creaditn}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-creaditnpass}
+      SERVER_PORT: 8082
+      JWT_SECRET: ${JWT_SECRET:-creaditn-super-secret-jwt-key-2026-at-least-32chars}
+      JWT_EXPIRATION: 86400000
+      APP_UPLOAD_DIR: /app/uploads
+      SPRING_MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      SPRING_MAIL_PORT: ${MAIL_PORT:-587}
+      SPRING_MAIL_USERNAME: ${MAIL_USERNAME:-raslenbesbes929@gmail.com}
+      SPRING_MAIL_PASSWORD: ${MAIL_PASSWORD:-gdno xqwa zljq vasl}
+      SPRING_MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-true}
+      SPRING_MAIL_SMTP_STARTTLS_ENABLE: ${MAIL_SMTP_STARTTLS_ENABLE:-true}
+      SPRING_MAIL_SMTP_STARTTLS_REQUIRED: ${MAIL_SMTP_STARTTLS_REQUIRED:-true}
+      APP_SOCKET_SERVER_URL: http://socket-server:3001
+      APP_SOCKET_EMIT_SECRET: ${SOCKET_EMIT_SECRET:-creaditn-socket-secret-2026}
+      APP_ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@bnpl.com}
+      APP_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      DIDIT_API_KEY: ${DIDIT_API_KEY:-}
+    volumes:
+      - uploads_data:/app/uploads
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/api/users/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Socket.IO Real-time Server ──────────────────────────────────────────────
+  socket-server:
+    build:
+      context: ./socket-server
+      dockerfile: Dockerfile
+    container_name: creaditn-socket
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      SOCKET_PORT: 3001
+      SOCKET_EMIT_SECRET: ${SOCKET_EMIT_SECRET:-creaditn-socket-secret-2026}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── Next.js Admin Dashboard ─────────────────────────────────────────────────
+  dashboard:
+    build:
+      context: ./Dashboard_client-main
+      dockerfile: Dockerfile
+    container_name: creaditn-dashboard
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - socket-server
+    ports:
+      - "3000:3000"
+    environment:
+      BACKEND_URL: http://backend:8082
+      NEXT_PUBLIC_API_URL: http://localhost:8082
+      NEXT_PUBLIC_SOCKET_URL: http://localhost:3001
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-creaditn}
+      DB_PASSWORD: ${DB_PASSWORD:-creaditnpass}
+      DB_NAME: creaditn
+
+volumes:
+  mysql_data:
+  uploads_data:
